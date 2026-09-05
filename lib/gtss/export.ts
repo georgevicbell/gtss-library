@@ -2,6 +2,7 @@ import JSZip from 'jszip';
 import { Platform } from 'react-native';
 
 import {
+    agenciesToCsv,
     agencyToCsv,
     approachesToCsv,
     basicTimingsToCsv,
@@ -9,7 +10,7 @@ import {
     phasesToCsv,
     signalsToCsv,
 } from './csv';
-import type { GtssFeed } from './types';
+import type { Agency, GtssFeed } from './types';
 
 function buildZip(feed: GtssFeed): JSZip {
     const zip = new JSZip();
@@ -19,6 +20,25 @@ function buildZip(feed: GtssFeed): JSZip {
     zip.file('phases.txt', phasesToCsv(feed.phases, feed.basicTimings, feed.approaches));
     zip.file('detectors.txt', detectorsToCsv(feed.detectors));
     zip.file('basic_timings.txt', basicTimingsToCsv(feed.basicTimings));
+    return zip;
+}
+
+// Combined export across many intersections, with one agency.txt row per distinct agency.
+function buildBundleZip(feeds: GtssFeed[]): JSZip {
+    const agenciesById = new Map<string, Agency>();
+    for (const feed of feeds) {
+        agenciesById.set(feed.agency.agencyId, feed.agency);
+    }
+    const approaches = feeds.flatMap((feed) => feed.approaches);
+    const basicTimings = feeds.flatMap((feed) => feed.basicTimings);
+
+    const zip = new JSZip();
+    zip.file('agency.txt', agenciesToCsv([...agenciesById.values()]));
+    zip.file('signals.txt', signalsToCsv(feeds.map((feed) => feed.signal)));
+    zip.file('approaches.txt', approachesToCsv(approaches));
+    zip.file('phases.txt', phasesToCsv(feeds.flatMap((feed) => feed.phases), basicTimings, approaches));
+    zip.file('detectors.txt', detectorsToCsv(feeds.flatMap((feed) => feed.detectors)));
+    zip.file('basic_timings.txt', basicTimingsToCsv(basicTimings));
     return zip;
 }
 
@@ -54,10 +74,7 @@ async function shareOnNative(base64: string, filename: string) {
     }
 }
 
-export async function exportGtssZip(feed: GtssFeed): Promise<void> {
-    const zip = buildZip(feed);
-    const filename = `gtss-${feed.signalId}.zip`;
-
+async function saveZip(zip: JSZip, filename: string): Promise<void> {
     if (Platform.OS === 'web') {
         const blob = await zip.generateAsync({ type: 'blob' });
         downloadOnWeb(blob, filename);
@@ -66,4 +83,13 @@ export async function exportGtssZip(feed: GtssFeed): Promise<void> {
 
     const base64 = await zip.generateAsync({ type: 'base64' });
     await shareOnNative(base64, filename);
+}
+
+export async function exportGtssZip(feed: GtssFeed): Promise<void> {
+    await saveZip(buildZip(feed), `gtss-${feed.signalId}.zip`);
+}
+
+// Exports a single GTSS zip containing every signal from the given feeds.
+export async function exportGtssBundle(feeds: GtssFeed[]): Promise<void> {
+    await saveZip(buildBundleZip(feeds), 'gtss-export.zip');
 }

@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import { DEFAULT_AGENCY, DEFAULT_AGENCY_ID } from './defaults';
-import type { GtssFeed } from './types';
+import { getDefaultAgency } from './agencyStore';
+import type { Agency, GtssFeed } from './types';
 
 const STORAGE_KEY_PREFIX = 'gtss-feed:';
 
@@ -23,14 +23,40 @@ export async function deleteFeed(signalId: string): Promise<void> {
     await AsyncStorage.removeItem(storageKey(signalId));
 }
 
+// Loads every saved feed (all intersections), sorted by signalId.
+// Entries stored by older schema versions (or corrupted) are skipped.
+export async function listAllFeeds(): Promise<GtssFeed[]> {
+    const keys = await AsyncStorage.getAllKeys();
+    const feedKeys = keys.filter((key) => key.startsWith(STORAGE_KEY_PREFIX));
+    if (feedKeys.length === 0) return [];
+    const pairs = await AsyncStorage.multiGet(feedKeys);
+    const feeds: GtssFeed[] = [];
+    for (const [, raw] of pairs) {
+        if (!raw) continue;
+        try {
+            const parsed = JSON.parse(raw) as GtssFeed;
+            const valid =
+                parsed &&
+                typeof parsed.signalId === 'string' &&
+                parsed.signal &&
+                parsed.agency &&
+                typeof parsed.agency.agencyId === 'string';
+            if (valid) feeds.push(parsed);
+        } catch {
+            // Skip entries that fail to parse.
+        }
+    }
+    return feeds.sort((a, b) => a.signalId.localeCompare(b.signalId));
+}
+
 // Builds a fresh feed for an intersection that doesn't have GTSS data yet.
-export function createDefaultFeed(signalId: string, latitude: number, longitude: number): GtssFeed {
+export function createDefaultFeed(signalId: string, latitude: number, longitude: number, agency: Agency): GtssFeed {
     return {
         signalId,
-        agency: { ...DEFAULT_AGENCY },
+        agency: { ...agency },
         signal: {
             signalId,
-            agencyId: DEFAULT_AGENCY_ID,
+            agencyId: agency.agencyId,
             streetName1: '',
             streetName2: '',
             latitude,
@@ -51,7 +77,8 @@ export async function loadOrCreateFeed(
 ): Promise<GtssFeed> {
     const existing = await loadFeed(signalId);
     if (existing) return existing;
-    const feed = createDefaultFeed(signalId, latitude, longitude);
+    const agency = await getDefaultAgency();
+    const feed = createDefaultFeed(signalId, latitude, longitude, agency);
     await saveFeed(feed);
     return feed;
 }

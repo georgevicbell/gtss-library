@@ -19,19 +19,23 @@ function sanitizeCSVField(value: string | number | boolean | null | undefined): 
     return strValue;
 }
 
-export function agencyToCsv(agency: Agency | null): string {
+export function agenciesToCsv(agencies: Agency[]): string {
     const headers = 'agency_id,agency_name,agency_url,agency_timezone,agency_email';
-    if (!agency) return headers + '\n';
-    return [
-        headers,
+    if (agencies.length === 0) return headers + '\n';
+    const rows = agencies.map((agency) =>
         [
             sanitizeCSVField(agency.agencyId),
             sanitizeCSVField(agency.agencyName),
             sanitizeCSVField(agency.agencyUrl),
             sanitizeCSVField(agency.agencyTimezone),
             sanitizeCSVField(agency.agencyEmail),
-        ].join(','),
-    ].join('\n') + '\n';
+        ].join(',')
+    );
+    return [headers, ...rows].join('\n') + '\n';
+}
+
+export function agencyToCsv(agency: Agency | null): string {
+    return agenciesToCsv(agency ? [agency] : []);
 }
 
 export function signalsToCsv(signals: Signal[]): string {

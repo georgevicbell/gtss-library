@@ -1,22 +1,28 @@
 import { useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
 
 import EntityListEditor, { type Column } from '@/components/gtss/EntityListEditor';
+import AgencyPicker from '@/components/gtss/AgencyPicker';
 import PhaseDiagram from '@/components/gtss/PhaseDiagram';
-import { exportGtssZip } from '@/lib/gtss/export';
+import SignalMap from '@/components/gtss/SignalMap';
+import Tabs from '@/components/gtss/Tabs';
+import { listAgencies } from '@/lib/gtss/agencyStore';
 import { loadOrCreateFeed, saveFeed } from '@/lib/gtss/storage';
 import {
     FREE_RIGHT_VALUES,
     MOVEMENT_TYPES,
     PEDESTRIAN_MODES,
     VEH_RECALL_TYPES,
+    type Agency,
     type Approach,
     type BasicTiming,
     type Detector,
     type GtssFeed,
     type Phase,
 } from '@/lib/gtss/types';
+
+type TabKey = 'approaches' | 'phases' | 'detectors' | 'timings';
 
 function nextNumericId<T>(rows: T[], key: keyof T): number {
     return rows.reduce((acc, row) => Math.max(acc, Number(row[key]) || 0), 0) + 1;
@@ -29,12 +35,18 @@ function nextChannelId(rows: Detector[]): string {
 export default function IntersectionScreen() {
     const { id, lat, lon } = useLocalSearchParams<{ id: string; lat?: string; lon?: string }>();
     const [feed, setFeed] = useState<GtssFeed | null>(null);
-    const [exporting, setExporting] = useState(false);
+    const [agencies, setAgencies] = useState<Agency[]>([]);
+    const [activeTab, setActiveTab] = useState<TabKey>('approaches');
+    const { width } = useWindowDimensions();
+    const isWide = width >= 900;
 
     useEffect(() => {
         let cancelled = false;
         loadOrCreateFeed(id, Number(lat) || 0, Number(lon) || 0).then((loaded) => {
             if (!cancelled) setFeed(loaded);
+        });
+        listAgencies().then((loaded) => {
+            if (!cancelled) setAgencies(loaded);
         });
         return () => {
             cancelled = true;
@@ -51,16 +63,6 @@ export default function IntersectionScreen() {
                 <ActivityIndicator />
             </View>
         );
-    }
-
-    async function handleExport() {
-        if (!feed) return;
-        setExporting(true);
-        try {
-            await exportGtssZip(feed);
-        } finally {
-            setExporting(false);
-        }
     }
 
     const approachColumns: Column<Approach>[] = [
@@ -108,174 +110,198 @@ export default function IntersectionScreen() {
         { key: 'pedRecall', label: 'Ped recall', type: 'boolean' },
     ];
 
+    const signalInfoPanel = (
+        <View style={[styles.card, styles.signalInfoCard]}>
+            <Text style={styles.cardTitle}>Signal Info</Text>
+
+            <Text style={styles.fieldLabel}>Signal ID</Text>
+            <Text style={styles.readonlyValue}>{feed.signalId}</Text>
+
+            <Text style={styles.fieldLabel}>Street name 1</Text>
+            <TextInput
+                style={styles.input}
+                value={feed.signal.streetName1}
+                onChangeText={(text) => setFeed({ ...feed, signal: { ...feed.signal, streetName1: text } })}
+            />
+            <Text style={styles.fieldLabel}>Street name 2</Text>
+            <TextInput
+                style={styles.input}
+                value={feed.signal.streetName2}
+                onChangeText={(text) => setFeed({ ...feed, signal: { ...feed.signal, streetName2: text } })}
+            />
+            <Text style={styles.fieldLabel}>Latitude</Text>
+            <TextInput
+                style={styles.input}
+                keyboardType="numeric"
+                value={String(feed.signal.latitude)}
+                onChangeText={(text) => setFeed({ ...feed, signal: { ...feed.signal, latitude: Number(text) || 0 } })}
+            />
+            <Text style={styles.fieldLabel}>Longitude</Text>
+            <TextInput
+                style={styles.input}
+                keyboardType="numeric"
+                value={String(feed.signal.longitude)}
+                onChangeText={(text) => setFeed({ ...feed, signal: { ...feed.signal, longitude: Number(text) || 0 } })}
+            />
+
+            <View style={styles.divider} />
+            <Text style={styles.cardTitle}>Agency</Text>
+            <AgencyPicker
+                agencies={agencies}
+                selectedAgencyId={feed.agency.agencyId}
+                onSelect={(agency) =>
+                    setFeed({ ...feed, agency, signal: { ...feed.signal, agencyId: agency.agencyId } })
+                }
+            />
+
+            <View style={styles.divider} />
+            <Text style={styles.cardTitle}>Counts</Text>
+            <View style={styles.countRow}>
+                <Text style={styles.countLabel}>Approaches</Text>
+                <Text style={styles.countValue}>{feed.approaches.length}</Text>
+            </View>
+            <View style={styles.countRow}>
+                <Text style={styles.countLabel}>Phases</Text>
+                <Text style={styles.countValue}>{feed.phases.length}</Text>
+            </View>
+            <View style={styles.countRow}>
+                <Text style={styles.countLabel}>Detectors</Text>
+                <Text style={styles.countValue}>{feed.detectors.length}</Text>
+            </View>
+            <View style={styles.countRow}>
+                <Text style={styles.countLabel}>Timings</Text>
+                <Text style={styles.countValue}>{feed.basicTimings.length}</Text>
+            </View>
+        </View>
+    );
+
+    const mapPanel = (
+        <View style={[styles.card, styles.mapCard]}>
+            <SignalMap latitude={feed.signal.latitude} longitude={feed.signal.longitude} />
+        </View>
+    );
+
+    const diagramPanel = (
+        <View style={[styles.card, styles.diagramCard]}>
+            <PhaseDiagram
+                phases={feed.phases}
+                approaches={feed.approaches}
+                intersectionId={feed.signalId}
+                intersectionName={[feed.signal.streetName1, feed.signal.streetName2].filter(Boolean).join(' & ')}
+            />
+        </View>
+    );
+
+    const tabsAndContent = (
+        <>
+            <Tabs<TabKey>
+                active={activeTab}
+                onChange={setActiveTab}
+                options={[
+                    { key: 'approaches', label: 'Approaches', count: feed.approaches.length },
+                    { key: 'phases', label: 'Phases', count: feed.phases.length },
+                    { key: 'detectors', label: 'Detection', count: feed.detectors.length },
+                    { key: 'timings', label: 'Basic Timings', count: feed.basicTimings.length },
+                ]}
+            />
+
+            {activeTab === 'approaches' && (
+                <EntityListEditor<Approach>
+                    title="Approaches"
+                    rows={feed.approaches}
+                    columns={approachColumns}
+                    createRow={() => ({
+                        approachId: String(nextNumericId(feed.approaches, 'approachId')),
+                        signalId: feed.signalId,
+                        streetName: '',
+                        compassBearing: 0,
+                        postedSpeed: 25,
+                        freeRight: 0,
+                        freeRightLanes: 1,
+                    })}
+                    onChange={(approaches) => setFeed({ ...feed, approaches })}
+                />
+            )}
+
+            {activeTab === 'phases' && (
+                <EntityListEditor<Phase>
+                    title="Phases"
+                    rows={feed.phases}
+                    columns={phaseColumns}
+                    createRow={() => ({
+                        phase: nextNumericId(feed.phases, 'phase'),
+                        approachId: feed.approaches[0]?.approachId ?? null,
+                        signalId: feed.signalId,
+                        movementType: 'Through',
+                        numOfLanes: 1,
+                        isPedestrian: 0,
+                        crosswalkLength: null,
+                    })}
+                    onChange={(phases) => setFeed({ ...feed, phases })}
+                />
+            )}
+
+            {activeTab === 'detectors' && (
+                <EntityListEditor<Detector>
+                    title="Detection"
+                    rows={feed.detectors}
+                    columns={detectorColumns}
+                    createRow={() => ({
+                        channel: nextChannelId(feed.detectors),
+                        signalId: feed.signalId,
+                        phase: feed.phases[0]?.phase ?? 1,
+                        description: '',
+                        purpose: 'stop bar',
+                        vehicleType: 'car',
+                        lane: '1',
+                        technologyType: 'inductive_loop',
+                        length: 6,
+                        stopbarSetbackDist: 0,
+                    })}
+                    onChange={(detectors) => setFeed({ ...feed, detectors })}
+                />
+            )}
+
+            {activeTab === 'timings' && (
+                <EntityListEditor<BasicTiming>
+                    title="Basic timings"
+                    rows={feed.basicTimings}
+                    columns={basicTimingColumns}
+                    createRow={() => ({
+                        phase: feed.phases[0]?.phase ?? 1,
+                        signalId: feed.signalId,
+                        pedWalk: 7,
+                        pedClearance: 20,
+                        leadingPedInterval: 0,
+                        minGreen: 8,
+                        maxGreen: 40,
+                        yellow: 4,
+                        allRed: 2,
+                        vehRecallType: 'None',
+                        pedRecall: false,
+                    })}
+                    onChange={(basicTimings) => setFeed({ ...feed, basicTimings })}
+                />
+            )}
+        </>
+    );
+
     return (
         <ScrollView contentContainerStyle={styles.content}>
             <Text style={styles.heading}>Signal {feed.signalId}</Text>
 
-            <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Diagram</Text>
-                <View style={styles.diagramCard}>
-                    <PhaseDiagram
-                        phases={feed.phases}
-                        approaches={feed.approaches}
-                        intersectionId={feed.signalId}
-                        intersectionName={[feed.signal.streetName1, feed.signal.streetName2].filter(Boolean).join(' & ')}
-                    />
+            <View style={isWide ? styles.mainRowWide : undefined}>
+                <View style={isWide ? styles.signalInfoColumnWide : undefined}>{signalInfoPanel}</View>
+
+                <View style={isWide ? styles.mainColumnWide : undefined}>
+                    <View style={[styles.topRow, isWide ? styles.topRowWide : styles.topRowNarrow]}>
+                        <View style={isWide ? styles.mapColumnWide : styles.mapColumnNarrow}>{mapPanel}</View>
+                        <View style={isWide ? styles.diagramColumnWide : undefined}>{diagramPanel}</View>
+                    </View>
+
+                    {tabsAndContent}
                 </View>
             </View>
-
-            <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Agency</Text>
-                <View style={styles.card}>
-                    <Text style={styles.fieldLabel}>Agency name</Text>
-                    <TextInput
-                        style={styles.input}
-                        value={feed.agency.agencyName}
-                        onChangeText={(text) =>
-                            setFeed({ ...feed, agency: { ...feed.agency, agencyName: text } })
-                        }
-                    />
-                    <Text style={styles.fieldLabel}>Agency URL</Text>
-                    <TextInput
-                        style={styles.input}
-                        value={feed.agency.agencyUrl ?? ''}
-                        onChangeText={(text) => setFeed({ ...feed, agency: { ...feed.agency, agencyUrl: text } })}
-                    />
-                    <Text style={styles.fieldLabel}>Timezone (IANA)</Text>
-                    <TextInput
-                        style={styles.input}
-                        value={feed.agency.agencyTimezone}
-                        onChangeText={(text) =>
-                            setFeed({ ...feed, agency: { ...feed.agency, agencyTimezone: text } })
-                        }
-                    />
-                    <Text style={styles.fieldLabel}>Contact email</Text>
-                    <TextInput
-                        style={styles.input}
-                        value={feed.agency.agencyEmail ?? ''}
-                        onChangeText={(text) =>
-                            setFeed({ ...feed, agency: { ...feed.agency, agencyEmail: text } })
-                        }
-                    />
-                </View>
-            </View>
-
-            <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Signal</Text>
-                <View style={styles.card}>
-                    <Text style={styles.fieldLabel}>Street name 1</Text>
-                    <TextInput
-                        style={styles.input}
-                        value={feed.signal.streetName1}
-                        onChangeText={(text) =>
-                            setFeed({ ...feed, signal: { ...feed.signal, streetName1: text } })
-                        }
-                    />
-                    <Text style={styles.fieldLabel}>Street name 2</Text>
-                    <TextInput
-                        style={styles.input}
-                        value={feed.signal.streetName2}
-                        onChangeText={(text) =>
-                            setFeed({ ...feed, signal: { ...feed.signal, streetName2: text } })
-                        }
-                    />
-                    <Text style={styles.fieldLabel}>Latitude</Text>
-                    <TextInput
-                        style={styles.input}
-                        keyboardType="numeric"
-                        value={String(feed.signal.latitude)}
-                        onChangeText={(text) =>
-                            setFeed({ ...feed, signal: { ...feed.signal, latitude: Number(text) || 0 } })
-                        }
-                    />
-                    <Text style={styles.fieldLabel}>Longitude</Text>
-                    <TextInput
-                        style={styles.input}
-                        keyboardType="numeric"
-                        value={String(feed.signal.longitude)}
-                        onChangeText={(text) =>
-                            setFeed({ ...feed, signal: { ...feed.signal, longitude: Number(text) || 0 } })
-                        }
-                    />
-                </View>
-            </View>
-
-            <EntityListEditor<Approach>
-                title="Approaches"
-                rows={feed.approaches}
-                columns={approachColumns}
-                createRow={() => ({
-                    approachId: String(nextNumericId(feed.approaches, 'approachId')),
-                    signalId: feed.signalId,
-                    streetName: '',
-                    compassBearing: 0,
-                    postedSpeed: 25,
-                    freeRight: 0,
-                    freeRightLanes: 1,
-                })}
-                onChange={(approaches) => setFeed({ ...feed, approaches })}
-            />
-
-            <EntityListEditor<Phase>
-                title="Phases"
-                rows={feed.phases}
-                columns={phaseColumns}
-                createRow={() => ({
-                    phase: nextNumericId(feed.phases, 'phase'),
-                    approachId: feed.approaches[0]?.approachId ?? null,
-                    signalId: feed.signalId,
-                    movementType: 'Through',
-                    numOfLanes: 1,
-                    isPedestrian: 0,
-                    crosswalkLength: null,
-                })}
-                onChange={(phases) => setFeed({ ...feed, phases })}
-            />
-
-            <EntityListEditor<Detector>
-                title="Detectors"
-                rows={feed.detectors}
-                columns={detectorColumns}
-                createRow={() => ({
-                    channel: nextChannelId(feed.detectors),
-                    signalId: feed.signalId,
-                    phase: feed.phases[0]?.phase ?? 1,
-                    description: '',
-                    purpose: 'stop bar',
-                    vehicleType: 'car',
-                    lane: '1',
-                    technologyType: 'inductive_loop',
-                    length: 6,
-                    stopbarSetbackDist: 0,
-                })}
-                onChange={(detectors) => setFeed({ ...feed, detectors })}
-            />
-
-            <EntityListEditor<BasicTiming>
-                title="Basic timings"
-                rows={feed.basicTimings}
-                columns={basicTimingColumns}
-                createRow={() => ({
-                    phase: feed.phases[0]?.phase ?? 1,
-                    signalId: feed.signalId,
-                    pedWalk: 7,
-                    pedClearance: 20,
-                    leadingPedInterval: 0,
-                    minGreen: 8,
-                    maxGreen: 40,
-                    yellow: 4,
-                    allRed: 2,
-                    vehRecallType: 'None',
-                    pedRecall: false,
-                })}
-                onChange={(basicTimings) => setFeed({ ...feed, basicTimings })}
-            />
-
-            <Pressable style={styles.exportButton} onPress={handleExport} disabled={exporting}>
-                <Text style={styles.exportButtonText}>
-                    {exporting ? 'Exporting…' : 'Export GTSS zip'}
-                </Text>
-            </Pressable>
         </ScrollView>
     );
 }
@@ -284,8 +310,16 @@ const styles = StyleSheet.create({
     centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
     content: { padding: 16, paddingBottom: 48 },
     heading: { fontSize: 22, fontWeight: '700', marginBottom: 16 },
-    section: { marginBottom: 24 },
-    sectionTitle: { fontSize: 18, fontWeight: '600', marginBottom: 8 },
+    mainRowWide: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
+    mainColumnWide: { flex: 1, minWidth: 0 },
+    topRow: { marginBottom: 16, gap: 12 },
+    topRowWide: { flexDirection: 'row', alignItems: 'flex-start' },
+    topRowNarrow: { flexDirection: 'column' },
+    signalInfoColumnWide: { width: 260 },
+    mapColumnWide: { flex: 1, alignSelf: 'stretch', minWidth: 0 },
+
+    mapColumnNarrow: { height: 200 },
+    diagramColumnWide: { width: 340 },
     card: {
         borderWidth: 1,
         borderColor: '#ddd',
@@ -293,6 +327,8 @@ const styles = StyleSheet.create({
         padding: 12,
         backgroundColor: '#fafafa',
     },
+    signalInfoCard: {},
+    mapCard: { flex: 1, padding: 0, overflow: 'hidden', backgroundColor: '#fff' },
     diagramCard: {
         borderWidth: 1,
         borderColor: '#ddd',
@@ -300,7 +336,14 @@ const styles = StyleSheet.create({
         padding: 12,
         backgroundColor: '#fff',
         alignItems: 'center',
+        justifyContent: 'center',
     },
+    cardTitle: { fontSize: 15, fontWeight: '700', marginBottom: 8, color: '#222' },
+    divider: { borderTopWidth: 1, borderTopColor: '#ddd', marginVertical: 12 },
+    countRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 },
+    countLabel: { fontSize: 12, color: '#555' },
+    countValue: { fontSize: 12, fontWeight: '600', color: '#222' },
+    readonlyValue: { fontSize: 14, fontFamily: 'monospace', marginBottom: 8 },
     fieldLabel: { fontSize: 12, color: '#555', marginBottom: 4, marginTop: 8 },
     input: {
         borderWidth: 1,
@@ -310,12 +353,4 @@ const styles = StyleSheet.create({
         paddingHorizontal: 8,
         backgroundColor: '#fff',
     },
-    exportButton: {
-        backgroundColor: '#1b8a3e',
-        paddingVertical: 14,
-        borderRadius: 8,
-        alignItems: 'center',
-        marginTop: 8,
-    },
-    exportButtonText: { color: '#fff', fontWeight: '700', fontSize: 16 },
 });
