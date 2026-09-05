@@ -2,8 +2,8 @@ import { useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
 
-import EntityListEditor, { type Column } from '@/components/gtss/EntityListEditor';
 import AgencyPicker from '@/components/gtss/AgencyPicker';
+import EntityListEditor, { type Column } from '@/components/gtss/EntityListEditor';
 import PhaseDiagram from '@/components/gtss/PhaseDiagram';
 import SignalMap from '@/components/gtss/SignalMap';
 import Tabs from '@/components/gtss/Tabs';
