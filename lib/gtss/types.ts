@@ -1,131 +1,129 @@
-// Types mirroring the GTSS (General Traffic Signal Specification) schema.
-// See https://redmond2742.github.io/GTSS/documentation/ for field definitions.
+// Types ported from the official GTSS-Signal-Builder app's data model.
+// Source: https://github.com/redmond2742/GTSS-Signal-Builder/blob/main/shared/schema.ts
 
-export type MovementType = 'T' | 'L' | 'LT' | 'TL' | 'LPP' | 'FYA' | 'U' | 'R' | 'TR' | 'PED';
+export type MovementType =
+  | 'Through'
+  | 'Left Turn'
+  | 'Left Protected-Permissive'
+  | 'Left Through Shared'
+  | 'Permissive Phase'
+  | 'Flashing Yellow Arrow'
+  | 'U-Turn'
+  | 'Right Turn'
+  | 'Through-Right'
+  | 'Pedestrian';
 
 export const MOVEMENT_TYPES: MovementType[] = [
-  'T',
-  'L',
-  'LT',
-  'TL',
-  'LPP',
-  'FYA',
-  'U',
-  'R',
-  'TR',
-  'PED',
+  'Through',
+  'Left Turn',
+  'Left Protected-Permissive',
+  'Left Through Shared',
+  'Permissive Phase',
+  'Flashing Yellow Arrow',
+  'U-Turn',
+  'Right Turn',
+  'Through-Right',
+  'Pedestrian',
 ];
 
-// 0-7, see phases.txt docs for the meaning of each value.
-export type PedX = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7;
+// Short codes used in phases.txt exports, keyed by the full movement type name.
+export const MOVEMENT_TYPE_CODES: Record<MovementType, string> = {
+  Through: 'T',
+  'Left Turn': 'L',
+  'Left Protected-Permissive': 'LPP',
+  'Left Through Shared': 'LT',
+  'Permissive Phase': 'TL',
+  'Flashing Yellow Arrow': 'FYA',
+  'U-Turn': 'U',
+  'Right Turn': 'R',
+  'Through-Right': 'TR',
+  Pedestrian: 'PED',
+};
 
-export const PED_X_VALUES: PedX[] = [0, 1, 2, 3, 4, 5, 6, 7];
+// Pedestrian crossing mode, 0-7. See crosswalkLengthCode/generatePhasesCSV for usage.
+export type PedestrianMode = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7;
+export const PEDESTRIAN_MODES: PedestrianMode[] = [0, 1, 2, 3, 4, 5, 6, 7];
 
-export type DetectorPurpose = 'stop bar' | 'advanced' | 'count';
-export const DETECTOR_PURPOSES: DetectorPurpose[] = ['stop bar', 'advanced', 'count'];
-
-export type DetectorVehicleType = 'car' | 'truck' | 'bus' | 'bicycle' | 'pedestrian';
-export const DETECTOR_VEHICLE_TYPES: DetectorVehicleType[] = [
-  'car',
-  'truck',
-  'bus',
-  'bicycle',
-  'pedestrian',
-];
-
-export type DetectorTechnology =
-  | 'inductive_loop'
-  | 'radar'
-  | 'microwave'
-  | 'lidar'
-  | 'magnetometer'
-  | 'hybrid'
-  | 'video';
-export const DETECTOR_TECHNOLOGIES: DetectorTechnology[] = [
-  'inductive_loop',
-  'radar',
-  'microwave',
-  'lidar',
-  'magnetometer',
-  'hybrid',
-  'video',
-];
-
-export type DetectorMode = 'pulse' | 'presence';
-export const DETECTOR_MODES: DetectorMode[] = ['pulse', 'presence'];
+// 0 = none, 1 = FR (slip lane), 2 = FR-P (with ped crossing), 3 = FR-P-I (improved).
+export type FreeRight = 0 | 1 | 2 | 3;
+export const FREE_RIGHT_VALUES: FreeRight[] = [0, 1, 2, 3];
 
 export type VehRecallType = 'None' | 'Min' | 'Max' | 'Soft';
 export const VEH_RECALL_TYPES: VehRecallType[] = ['None', 'Min', 'Max', 'Soft'];
 
 export interface Agency {
-  agency_id: string;
-  agency_name: string;
-  agency_url: string;
-  agency_timezone: string;
-  agency_email: string;
+  agencyId: string;
+  agencyName: string;
+  agencyUrl: string | null;
+  agencyTimezone: string;
+  agencyLanguage: string | null;
+  agencyEmail: string | null;
+  latitude: number | null;
+  longitude: number | null;
 }
 
 export interface Signal {
-  signal_id: string;
-  agency_id: string;
+  signalId: string;
+  agencyId: string;
+  streetName1: string;
+  streetName2: string;
   latitude: number;
   longitude: number;
 }
 
 export interface Approach {
-  approach_id: string;
-  signal_id: string;
-  street_name: string;
-  compass_bearing: number;
-  posted_speed: number;
-  // e.g. "0" (no free right), "1-FR", "1-FR-P", "1-FR-PI"
-  free_right: string;
+  approachId: string;
+  signalId: string;
+  streetName: string;
+  compassBearing: number | null;
+  postedSpeed: number | null;
+  freeRight: FreeRight;
+  freeRightLanes: number;
 }
 
 export interface Phase {
-  phase: string;
-  approach_id: string;
-  signal_id: string;
-  movement_type: MovementType;
-  num_of_lanes: number;
-  pedX: PedX;
-  // e.g. "LE-25", "TE-20", or a raw measured value like "22"
-  crosswalk_length: string;
+  phase: number;
+  signalId: string;
+  movementType: MovementType;
+  isPedestrian: PedestrianMode;
+  numOfLanes: number;
+  approachId: string | null;
+  // Measured crosswalk length in feet; null means "not measured" (an LE-#/TE-# estimate is exported instead).
+  crosswalkLength: number | null;
 }
 
 export interface Detector {
   channel: string;
-  signal_id: string;
-  phase: string;
-  description: string;
-  purpose: DetectorPurpose;
-  vehicle_type: DetectorVehicleType;
-  lane: number;
-  technology_type: DetectorTechnology;
-  mode: DetectorMode;
-  length: number;
-  stopbar_setback_dist: number;
+  signalId: string;
+  phase: number;
+  description: string | null;
+  purpose: string;
+  vehicleType: string | null;
+  lane: string | null;
+  technologyType: string;
+  length: number | null;
+  stopbarSetbackDist: number | null;
 }
 
 export interface BasicTiming {
-  phase: string;
-  signal_id: string;
-  ped_walk: number;
-  ped_clearance: number;
-  leading_ped_interval: number;
-  min_green: number;
-  max_green: number;
-  yellow: number;
-  all_red: number;
-  veh_recall_type: VehRecallType;
-  ped_recall: boolean;
+  phase: number;
+  signalId: string;
+  pedWalk: number | null;
+  pedClearance: number | null;
+  leadingPedInterval: number | null;
+  minGreen: number | null;
+  maxGreen: number | null;
+  yellow: number | null;
+  allRed: number | null;
+  vehRecallType: VehRecallType;
+  pedRecall: boolean;
 }
 
-// A full GTSS feed for a single intersection (signal_id).
+// A full GTSS feed for a single intersection (signalId).
 export interface GtssFeed {
   signalId: string;
   agency: Agency;
-  signals: Signal[];
+  signal: Signal;
   approaches: Approach[];
   phases: Phase[];
   detectors: Detector[];
