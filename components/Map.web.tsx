@@ -1,6 +1,6 @@
 import L from 'leaflet';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { MapContainer, Marker, TileLayer, useMapEvents } from 'react-leaflet';
+import { MapContainer, Marker, TileLayer, useMap, useMapEvents } from 'react-leaflet';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { fetchTrafficSignals, type MapBounds, type TrafficSignalNode } from '@/lib/osm/overpass';
@@ -18,6 +18,23 @@ const signalIcon = L.icon({
     popupAnchor: [1, -34],
     shadowSize: [41, 41],
 });
+
+// GTSS signals get fixed-size dot markers so they stay visible at every zoom level
+// (default image pins shrink into noise when zoomed out). Green = saved GTSS signal;
+// orange = currently selected in the list.
+function makeGtssIcon(selected: boolean): L.DivIcon {
+    const size = selected ? 22 : 14;
+    const color = selected ? '#e67e22' : '#1b8a3e';
+    return L.divIcon({
+        className: '',
+        html: `<div style="width:${size}px;height:${size}px;background:${color};border:2px solid #ffffff;border-radius:50%;box-shadow:0 1px 4px rgba(0,0,0,0.6);"></div>`,
+        iconSize: [size, size],
+        iconAnchor: [size / 2, size / 2],
+    });
+}
+
+const gtssIcon = makeGtssIcon(false);
+const gtssIconSelected = makeGtssIcon(true);
 
 function useLeafletCss() {
     useEffect(() => {
@@ -57,11 +74,43 @@ function ViewportWatcher({ onBoundsChange }: { onBoundsChange: (bounds: MapBound
     return null;
 }
 
-export interface MapProps {
-    onSelectIntersection: (node: TrafficSignalNode) => void;
+export interface GtssSignalPin {
+    signalId: string;
+    latitude: number;
+    longitude: number;
 }
 
-export default function Map({ onSelectIntersection }: MapProps) {
+export interface MapFocusTarget {
+    latitude: number;
+    longitude: number;
+    // Bump this to re-focus the same location (e.g. tapping the same list row twice).
+    nonce: number;
+}
+
+// Flies the map to the target whenever it changes (including repeat taps on one row).
+function FocusHandler({ target }: { target: MapFocusTarget }) {
+    const map = useMap();
+    useEffect(() => {
+        map.flyTo([target.latitude, target.longitude], Math.max(map.getZoom(), 18));
+    }, [target, map]);
+    return null;
+}
+
+export interface MapProps {
+    onSelectIntersection: (node: TrafficSignalNode) => void;
+    gtssSignals?: GtssSignalPin[];
+    selectedSignalId?: string | null;
+    focusTarget?: MapFocusTarget | null;
+    onSelectGtssSignal?: (signalId: string) => void;
+}
+
+export default function Map({
+    onSelectIntersection,
+    gtssSignals = [],
+    selectedSignalId = null,
+    focusTarget = null,
+    onSelectGtssSignal,
+}: MapProps) {
     useLeafletCss();
     const [signals, setSignals] = useState<TrafficSignalNode[]>([]);
     const [error, setError] = useState<string | null>(null);
@@ -95,6 +144,7 @@ export default function Map({ onSelectIntersection }: MapProps) {
                     url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                 />
                 <ViewportWatcher onBoundsChange={handleBoundsChange} />
+                {focusTarget ? <FocusHandler target={focusTarget} /> : null}
                 {signals.map((node) => (
                     <Marker
                         key={node.id}
@@ -103,6 +153,18 @@ export default function Map({ onSelectIntersection }: MapProps) {
                         eventHandlers={{ click: () => onSelectIntersection(node) }}
                     />
                 ))}
+                {gtssSignals.map((signal) => {
+                    const selected = signal.signalId === selectedSignalId;
+                    return (
+                        <Marker
+                            key={`gtss-${signal.signalId}`}
+                            position={[signal.latitude, signal.longitude]}
+                            icon={selected ? gtssIconSelected : gtssIcon}
+                            zIndexOffset={selected ? 1000 : 500}
+                            eventHandlers={{ click: () => onSelectGtssSignal?.(signal.signalId) }}
+                        />
+                    );
+                })}
             </MapContainer>
             {error ? (
                 <View style={styles.errorBanner}>

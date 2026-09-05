@@ -66,7 +66,7 @@ export default function ExportModal({ visible, onClose }: ExportModalProps) {
             <View style={styles.backdrop}>
                 <View style={styles.sheet}>
                     <View style={styles.header}>
-                        <Text style={styles.title}>Download GTSS</Text>
+                        <Text style={styles.title}>Export GTSS</Text>
                         <Pressable onPress={onClose}>
                             <Text style={styles.closeText}>Cancel</Text>
                         </Pressable>
