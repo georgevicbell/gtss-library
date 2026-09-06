@@ -11,10 +11,16 @@ export interface GtssLibraryEntry {
     'date-updated': string;
     'owner-email': string;
     'owner-url': string;
-    'lat-min': number;
-    'lon-min': number;
-    'lat-max': number;
-    'lon-max': number;
+    bound: {
+        min: {
+            lat: number;
+            lon: number;
+        };
+        max: {
+            lat: number;
+            lon: number;
+        };
+    };
 }
 
 const CUSTOM_ENTRIES_KEY = 'gtss-library-custom-entries';
@@ -74,10 +80,10 @@ export function createEntryFromUrl(gtssUrl: string): GtssLibraryEntry {
         'date-updated': now,
         'owner-email': '',
         'owner-url': '',
-        'lat-min': 0,
-        'lon-min': 0,
-        'lat-max': 0,
-        'lon-max': 0,
+        bound: {
+            min: { lat: 0, lon: 0 },
+            max: { lat: 0, lon: 0 },
+        },
     };
 }
 
