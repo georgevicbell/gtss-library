@@ -167,9 +167,11 @@ function addBuildings(
         });
 
         const geometry = new THREE.ExtrudeGeometry(shape, { depth: height, bevelEnabled: false });
-        // Shape lies in the X/Y plane and extrudes along +Z; rotate -90° about
-        // X so +Z becomes +Y (up) and shape Y maps back to scene Z unchanged.
-        geometry.rotateX(-Math.PI / 2);
+        // Shape lies in the X/Y plane and extrudes along +Z. rotateX(+90°) maps
+        // +Z to -Y (down) and shape Y to +Z (matching the projection's axis, so
+        // footprints stay aligned with the roads); the box then spans
+        // y ∈ [-height, 0], so translate up to rest its base on y = 0.
+        geometry.rotateX(Math.PI / 2);
         geometry.translate(0, height, 0);
         const mesh = new THREE.Mesh(geometry, material);
         mesh.castShadow = true;
