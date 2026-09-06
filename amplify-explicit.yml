@@ -1,0 +1,24 @@
+version: 1.0
+frontend:
+  phases:
+    preBuild:
+      commands:
+        - >
+          if [ -f yarn.lock ]; then
+            yarn
+          elif [ -f package-lock.json ] || [ -f npm-shrinkwrap.json ]; then
+            npm ci
+          else
+            npm install
+          fi
+    build:
+      commands:
+        - npx expo export
+  artifacts:
+    baseDirectory: web-build
+    files:
+      - '**/*'
+  cache:
+    paths:
+      - node_modules/**/*
+      - $(npm root --global)/**/*
