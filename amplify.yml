@@ -7,7 +7,7 @@ frontend:
           if [ -f yarn.lock ]; then
             yarn
           elif [ -f package-lock.json ] || [ -f npm-shrinkwrap.json ]; then
-            npm ci
+            npm install
           else
             npm install
           fi
