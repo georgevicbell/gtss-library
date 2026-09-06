@@ -23,6 +23,10 @@ const links = [
         label: 'borkbork.ca',
         url: 'https://borkbork.ca/',
     },
+    {
+        label: 'GTSS Library GitHub',
+        url: 'https://github.com/georgevicbell/gtss-library',
+    },
 ];
 
 export default function AppInfoModal({ visible, onClose }: AppInfoModalProps) {
