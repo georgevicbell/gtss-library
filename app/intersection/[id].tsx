@@ -4,6 +4,7 @@ import { ActivityIndicator, ScrollView, StyleSheet, Text, TextInput, useWindowDi
 
 import AgencyPicker from '@/components/gtss/AgencyPicker';
 import EntityListEditor, { type Column } from '@/components/gtss/EntityListEditor';
+import Intersection3D from '@/components/gtss/Intersection3D';
 import PhaseDiagram from '@/components/gtss/PhaseDiagram';
 import SignalMap from '@/components/gtss/SignalMap';
 import Tabs from '@/components/gtss/Tabs';
@@ -23,6 +24,7 @@ import {
 } from '@/lib/gtss/types';
 
 type TabKey = 'approaches' | 'phases' | 'detectors' | 'timings';
+type ViewKey = 'map' | '3d';
 
 function nextNumericId<T>(rows: T[], key: keyof T): number {
     return rows.reduce((acc, row) => Math.max(acc, Number(row[key]) || 0), 0) + 1;
@@ -37,6 +39,7 @@ export default function IntersectionScreen() {
     const [feed, setFeed] = useState<GtssFeed | null>(null);
     const [agencies, setAgencies] = useState<Agency[]>([]);
     const [activeTab, setActiveTab] = useState<TabKey>('approaches');
+    const [viewMode, setViewMode] = useState<ViewKey>('map');
     const { width } = useWindowDimensions();
     const isWide = width >= 900;
 
@@ -177,7 +180,21 @@ export default function IntersectionScreen() {
 
     const mapPanel = (
         <View style={[styles.card, styles.mapCard]}>
-            <SignalMap latitude={feed.signal.latitude} longitude={feed.signal.longitude} />
+            <Tabs<ViewKey>
+                active={viewMode}
+                onChange={setViewMode}
+                options={[
+                    { key: 'map', label: '2D Map' },
+                    { key: '3d', label: '3D View' },
+                ]}
+            />
+            <View style={styles.viewPane}>
+                {viewMode === 'map' ? (
+                    <SignalMap latitude={feed.signal.latitude} longitude={feed.signal.longitude} />
+                ) : (
+                    <Intersection3D feed={feed} />
+                )}
+            </View>
         </View>
     );
 
@@ -328,7 +345,8 @@ const styles = StyleSheet.create({
         backgroundColor: '#fafafa',
     },
     signalInfoCard: {},
-    mapCard: { flex: 1, padding: 0, overflow: 'hidden', backgroundColor: '#fff' },
+    mapCard: { flex: 1, padding: 12, overflow: 'hidden', backgroundColor: '#fff' },
+    viewPane: { flex: 1, minHeight: 320, borderRadius: 8, overflow: 'hidden' },
     diagramCard: {
         borderWidth: 1,
         borderColor: '#ddd',
