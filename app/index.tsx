@@ -3,7 +3,7 @@ import { Stack, useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { Modal, Platform, Pressable, SectionList, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import Map, { type MapFocusTarget } from '@/components/Map';
+import Map, { type MapBoundsTarget, type MapFocusTarget } from '@/components/Map';
 import AgencyModal from '@/components/gtss/AgencyModal';
 import ExportModal from '@/components/gtss/ExportModal';
 import LibraryModal from '@/components/gtss/LibraryModal';
@@ -37,6 +37,7 @@ export default function MapScreen() {
     const [signalPendingDeletion, setSignalPendingDeletion] = useState<SignalListItem | null>(null);
     const [deletingSignal, setDeletingSignal] = useState(false);
     const [focusTarget, setFocusTarget] = useState<MapFocusTarget | null>(null);
+    const [boundsTarget, setBoundsTarget] = useState<MapBoundsTarget | null>(null);
     const [collapsedAgencies, setCollapsedAgencies] = useState<ReadonlySet<string>>(new Set());
     const listRef = useRef<SectionList<SignalListItem, AgencySection>>(null);
 
@@ -229,6 +230,7 @@ export default function MapScreen() {
                     gtssSignals={signalItems}
                     selectedSignalId={selectedSignalId}
                     focusTarget={focusTarget}
+                    boundsTarget={boundsTarget}
                     onSelectGtssSignal={handleSelectFromPin}
                 />
                 {signalItems.length > 0 ? (
@@ -337,9 +339,12 @@ export default function MapScreen() {
             <ExportModal visible={exportModalVisible} onClose={() => setExportModalVisible(false)} />
             <LibraryModal
                 visible={libraryModalVisible}
-                onClose={() => {
+                onClose={(bounds) => {
                     setLibraryModalVisible(false);
                     refreshSignals();
+                    if (bounds) {
+                        setBoundsTarget({ bounds, nonce: Date.now() });
+                    }
                 }}
             />
             <Modal

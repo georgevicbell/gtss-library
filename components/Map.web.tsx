@@ -87,6 +87,12 @@ export interface MapFocusTarget {
     nonce: number;
 }
 
+export interface MapBoundsTarget {
+    bounds: MapBounds;
+    // Bump this to re-fit the bounds.
+    nonce: number;
+}
+
 // Flies the map to the target whenever it changes (including repeat taps on one row).
 function FocusHandler({ target }: { target: MapFocusTarget }) {
     const map = useMap();
@@ -96,11 +102,33 @@ function FocusHandler({ target }: { target: MapFocusTarget }) {
     return null;
 }
 
+// Fits the map to the target bounding box whenever it changes.
+function BoundsHandler({ target }: { target: MapBoundsTarget }) {
+    const map = useMap();
+    useEffect(() => {
+        const south = Math.min(target.bounds.south, target.bounds.north);
+        const north = Math.max(target.bounds.south, target.bounds.north);
+        const west = Math.min(target.bounds.west, target.bounds.east);
+        const east = Math.max(target.bounds.west, target.bounds.east);
+
+        if (south === north && west === east) {
+            map.flyTo([north, east], Math.max(map.getZoom(), 16));
+        } else {
+            const corner1 = L.latLng(south, west);
+            const corner2 = L.latLng(north, east);
+            const bounds = L.latLngBounds(corner1, corner2);
+            map.fitBounds(bounds, { padding: [50, 50], maxZoom: 17 });
+        }
+    }, [target, map]);
+    return null;
+}
+
 export interface MapProps {
     onSelectIntersection: (node: TrafficSignalNode) => void;
     gtssSignals?: GtssSignalPin[];
     selectedSignalId?: string | null;
     focusTarget?: MapFocusTarget | null;
+    boundsTarget?: MapBoundsTarget | null;
     onSelectGtssSignal?: (signalId: string) => void;
 }
 
@@ -109,6 +137,7 @@ export default function Map({
     gtssSignals = [],
     selectedSignalId = null,
     focusTarget = null,
+    boundsTarget = null,
     onSelectGtssSignal,
 }: MapProps) {
     useLeafletCss();
@@ -145,6 +174,7 @@ export default function Map({
                 />
                 <ViewportWatcher onBoundsChange={handleBoundsChange} />
                 {focusTarget ? <FocusHandler target={focusTarget} /> : null}
+                {boundsTarget ? <BoundsHandler target={boundsTarget} /> : null}
                 {signals.map((node) => (
                     <Marker
                         key={node.id}

@@ -26,11 +26,18 @@ export interface MapFocusTarget {
     nonce: number;
 }
 
+export interface MapBoundsTarget {
+    bounds: MapBounds;
+    // Bump this to re-fit the bounds.
+    nonce: number;
+}
+
 export interface MapProps {
     onSelectIntersection: (node: TrafficSignalNode) => void;
     gtssSignals?: GtssSignalPin[];
     selectedSignalId?: string | null;
     focusTarget?: MapFocusTarget | null;
+    boundsTarget?: MapBoundsTarget | null;
     onSelectGtssSignal?: (signalId: string) => void;
 }
 
@@ -39,6 +46,7 @@ export default function Map({
     gtssSignals = [],
     selectedSignalId = null,
     focusTarget = null,
+    boundsTarget = null,
     onSelectGtssSignal,
 }: MapProps) {
     const [signals, setSignals] = useState<TrafficSignalNode[]>([]);
@@ -59,6 +67,38 @@ export default function Map({
             600
         );
     }, [focusTarget]);
+
+    // Fit to bounds when boundsTarget changes.
+    useEffect(() => {
+        if (!boundsTarget) return;
+        const south = Math.min(boundsTarget.bounds.south, boundsTarget.bounds.north);
+        const north = Math.max(boundsTarget.bounds.south, boundsTarget.bounds.north);
+        const west = Math.min(boundsTarget.bounds.west, boundsTarget.bounds.east);
+        const east = Math.max(boundsTarget.bounds.west, boundsTarget.bounds.east);
+
+        if (south === north && west === east) {
+            mapRef.current?.animateToRegion(
+                {
+                    latitude: north,
+                    longitude: east,
+                    latitudeDelta: 0.01,
+                    longitudeDelta: 0.01,
+                },
+                600
+            );
+        } else {
+            mapRef.current?.fitToCoordinates(
+                [
+                    { latitude: south, longitude: west },
+                    { latitude: north, longitude: east },
+                ],
+                {
+                    edgePadding: { top: 50, right: 50, bottom: 50, left: 50 },
+                    animated: true,
+                }
+            );
+        }
+    }, [boundsTarget]);
 
     const handleRegionChangeComplete = useCallback((region: Region) => {
         abortRef.current?.abort();

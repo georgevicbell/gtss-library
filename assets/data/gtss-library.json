@@ -1,21 +1,62 @@
-[
-    {
-        "title": "Example City DOT Signals",
-        "gtss-url": "https://example.com/gtss/example-city.zip",
-        "official": true,
-        "date-added": "2026-01-15T00:00:00.000Z",
-        "date-updated": "2026-01-15T00:00:00.000Z",
-        "owner-email": "signals@example.com",
-        "owner-url": "https://example.com",
-        "bound": {
-            "min": {
-                "lat": 40.4774,
-                "lon": -74.2591
-            },
-            "max": {
-                "lat": 40.9176,
-                "lon": -73.7004
+{
+    "title": "GTSS Test Library",
+    "description": "Example GTSS files for testing and development.",
+    "originUrl": "https://github.com/georgevicbell/gtss-library/blob/main/assets/data/gtss-library.json",
+    "originEmail": "",
+    "gtssLibrary": [
+        {
+            "title": "GTSS Example: Minimal Signal",
+            "gtss-url": "assets/data/gtss-example-minimal.zip",
+            "official": false,
+            "date-added": "2026-09-06T00:00:00.000Z",
+            "owner-email": "",
+            "owner-url": "",
+            "bounds": {
+                "min": {
+                    "lat": 40.7128,
+                    "lon": -74.006
+                },
+                "max": {
+                    "lat": 40.7128,
+                    "lon": -74.006
+                }
+            }
+        },
+        {
+            "title": "GTSS Example: Pedestrian Crossing",
+            "gtss-url": "assets/data/gtss-example-pedestrian.zip",
+            "official": false,
+            "date-added": "2026-09-06T00:00:00.000Z",
+            "owner-email": "",
+            "owner-url": "",
+            "bounds": {
+                "min": {
+                    "lat": 40.7135,
+                    "lon": -74.0055
+                },
+                "max": {
+                    "lat": 40.7135,
+                    "lon": -74.0055
+                }
+            }
+        },
+        {
+            "title": "GTSS Example: Detector-Rich Intersection",
+            "gtss-url": "assets/data/gtss-example-detectors.zip",
+            "official": false,
+            "date-added": "2026-09-06T00:00:00.000Z",
+            "owner-email": "",
+            "owner-url": "",
+            "bounds": {
+                "min": {
+                    "lat": 40.7142,
+                    "lon": -74.0048
+                },
+                "max": {
+                    "lat": 40.7142,
+                    "lon": -74.0048
+                }
             }
         }
-    }
-]
+    ]
+}

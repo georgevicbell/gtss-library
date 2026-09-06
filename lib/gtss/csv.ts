@@ -1,7 +1,7 @@
-// CSV generation ported from the official GTSS-Signal-Builder app.
+// CSV generation and parsing ported from the official GTSS-Signal-Builder app.
 // Source: https://github.com/redmond2742/GTSS-Signal-Builder/blob/main/client/src/lib/localStorage.ts
-import type { Agency, Approach, BasicTiming, Detector, Phase, Signal } from './types';
-import { MOVEMENT_TYPE_CODES } from './types';
+import type { Agency, Approach, BasicTiming, Detector, FreeRight, MovementType, PedestrianMode, Phase, Signal, VehRecallType } from './types';
+import { MOVEMENT_TYPE_CODES, MOVEMENT_TYPES } from './types';
 
 // Prevents CSV formula-injection: quotes fields with commas/quotes/newlines, and
 // neutralizes values starting with =, +, -, @ or a tab/CR (which spreadsheets treat as formulas).
@@ -271,5 +271,235 @@ export function basicTimingsToCsv(timings: BasicTiming[]): string {
         ].join(',')
     );
     return [headers, ...rows].join('\n') + '\n';
+}
+
+const CODE_TO_MOVEMENT_TYPE: Record<string, MovementType> = {
+    T: 'Through',
+    L: 'Left Turn',
+    LPP: 'Left Protected-Permissive',
+    LT: 'Left Through Shared',
+    TL: 'Permissive Phase',
+    FYA: 'Flashing Yellow Arrow',
+    U: 'U-Turn',
+    R: 'Right Turn',
+    TR: 'Through-Right',
+    PED: 'Pedestrian',
+};
+
+// General-purpose RFC-4180 CSV parser supporting quotes, escaped quotes, multiline values.
+export function parseCsv(text: string): Record<string, string>[] {
+    const lines: string[][] = [];
+    let row: string[] = [];
+    let cell = '';
+    let inQuotes = false;
+
+    for (let i = 0; i < text.length; i++) {
+        const char = text[i];
+        const nextChar = text[i + 1];
+
+        if (inQuotes) {
+            if (char === '"' && nextChar === '"') {
+                cell += '"';
+                i++;
+            } else if (char === '"') {
+                inQuotes = false;
+            } else {
+                cell += char;
+            }
+        } else {
+            if (char === '"') {
+                inQuotes = true;
+            } else if (char === ',') {
+                row.push(cell.trim());
+                cell = '';
+            } else if (char === '\n' || char === '\r') {
+                if (char === '\r' && nextChar === '\n') i++;
+                row.push(cell.trim());
+                if (row.length > 1 || (row.length === 1 && row[0] !== '')) {
+                    lines.push(row);
+                }
+                row = [];
+                cell = '';
+            } else {
+                cell += char;
+            }
+        }
+    }
+    if (cell.length > 0 || row.length > 0) {
+        row.push(cell.trim());
+        if (row.length > 1 || (row.length === 1 && row[0] !== '')) {
+            lines.push(row);
+        }
+    }
+    if (lines.length < 2) return [];
+
+    const headers = lines[0].map((h) => h.replace(/^["']+|["']+$/g, '').trim());
+    return lines.slice(1).map((line) => {
+        const obj: Record<string, string> = {};
+        headers.forEach((h, idx) => {
+            let val = line[idx] !== undefined ? line[idx] : '';
+            if (val.startsWith("'=") || val.startsWith("'+") || val.startsWith("'-") || val.startsWith("'@")) {
+                val = val.slice(1);
+            }
+            obj[h] = val;
+        });
+        return obj;
+    });
+}
+
+export function parseAgenciesCsv(text: string): Agency[] {
+    const rows = parseCsv(text);
+    return rows.map((row) => ({
+        agencyId: row.agency_id || row.agencyId || '',
+        agencyName: row.agency_name || row.agencyName || '',
+        agencyUrl: row.agency_url || row.agencyUrl || null,
+        agencyTimezone: row.agency_timezone || row.agencyTimezone || 'UTC',
+        agencyLanguage: row.agency_lang || row.agency_language || row.agencyLanguage || null,
+        agencyEmail: row.agency_email || row.agencyEmail || null,
+        latitude: row.agency_lat || row.latitude ? parseFloat(row.agency_lat || row.latitude) : null,
+        longitude: row.agency_lon || row.longitude ? parseFloat(row.agency_lon || row.longitude) : null,
+    })).filter((a) => Boolean(a.agencyId));
+}
+
+export function parseSignalsCsv(text: string): Signal[] {
+    const rows = parseCsv(text);
+    return rows.map((row) => {
+        const lat = parseFloat(row.latitude || row.lat || '0');
+        const lon = parseFloat(row.longitude || row.lon || '0');
+        return {
+            signalId: row.signal_id || row.signalId || '',
+            agencyId: row.agency_id || row.agencyId || '',
+            streetName1: row.street_name1 || row.street_name_1 || row.streetName1 || '',
+            streetName2: row.street_name2 || row.street_name_2 || row.streetName2 || '',
+            latitude: Number.isFinite(lat) ? lat : 0,
+            longitude: Number.isFinite(lon) ? lon : 0,
+        };
+    }).filter((s) => Boolean(s.signalId));
+}
+
+export function parseApproachesCsv(text: string): Approach[] {
+    const rows = parseCsv(text);
+    return rows.map((row) => {
+        const bearing = row.compass_bearing || row.compassBearing;
+        const speed = row.posted_speed || row.postedSpeed;
+
+        let freeRight: FreeRight = 0;
+        let freeRightLanes = 0;
+        const frRaw = (row.free_right || row.freeRight || '').trim();
+        if (frRaw) {
+            let code = frRaw;
+            let lanes = 1;
+            const match = frRaw.match(/^(\d+)-(.*)$/);
+            if (match) {
+                lanes = parseInt(match[1], 10) || 1;
+                code = match[2];
+            }
+            if (code === 'FR-P-I' || code === '3') {
+                freeRight = 3;
+                freeRightLanes = lanes;
+            } else if (code === 'FR-P' || code === '2') {
+                freeRight = 2;
+                freeRightLanes = lanes;
+            } else if (code === 'FR' || code === '1') {
+                freeRight = 1;
+                freeRightLanes = lanes;
+            }
+        }
+
+        return {
+            approachId: row.approach_id || row.approachId || '',
+            signalId: row.signal_id || row.signalId || '',
+            streetName: row.street_name || row.streetName || '',
+            compassBearing: bearing !== undefined && bearing !== '' ? parseFloat(bearing) : null,
+            postedSpeed: speed !== undefined && speed !== '' ? parseFloat(speed) : null,
+            freeRight,
+            freeRightLanes,
+        };
+    }).filter((a) => Boolean(a.approachId && a.signalId));
+}
+
+export function parsePhasesCsv(text: string): Phase[] {
+    const rows = parseCsv(text);
+    return rows.map((row) => {
+        const phaseNum = parseInt(row.phase, 10);
+        const movRaw = (row.movement_type || row.movementType || '').trim();
+        const movementType: MovementType =
+            CODE_TO_MOVEMENT_TYPE[movRaw] ||
+            (MOVEMENT_TYPES.includes(movRaw as MovementType) ? (movRaw as MovementType) : 'Through');
+
+        const pedXRaw = parseInt(row.PedX || row.ped_x || row.is_pedestrian || row.isPedestrian || '0', 10);
+        const isPedestrian: PedestrianMode = (Number.isFinite(pedXRaw) && pedXRaw >= 0 && pedXRaw <= 7
+            ? pedXRaw
+            : 0) as PedestrianMode;
+
+        const lanes = parseInt(row.num_of_lanes || row.numOfLanes || '1', 10);
+
+        const crosswalkRaw = (row.crosswalk_length || row.crosswalkLength || '').trim();
+        let crosswalkLength: number | null = null;
+        if (crosswalkRaw && !crosswalkRaw.startsWith('LE-') && !crosswalkRaw.startsWith('TE-')) {
+            const parsedCrosswalk = parseFloat(crosswalkRaw);
+            if (Number.isFinite(parsedCrosswalk)) crosswalkLength = parsedCrosswalk;
+        }
+
+        return {
+            phase: Number.isFinite(phaseNum) ? phaseNum : 0,
+            signalId: row.signal_id || row.signalId || '',
+            movementType,
+            isPedestrian,
+            numOfLanes: Number.isFinite(lanes) && lanes > 0 ? lanes : 1,
+            approachId: row.approach_id || row.approachId || null,
+            crosswalkLength,
+        };
+    }).filter((p) => Boolean(p.signalId && p.phase));
+}
+
+export function parseDetectorsCsv(text: string): Detector[] {
+    const rows = parseCsv(text);
+    return rows.map((row) => {
+        const phaseNum = parseInt(row.phase, 10);
+        const lenRaw = row.length;
+        const setbackRaw = row.stopbar_setback_dist || row.stopbarSetbackDist;
+
+        return {
+            channel: row.channel || '',
+            signalId: row.signal_id || row.signalId || '',
+            phase: Number.isFinite(phaseNum) ? phaseNum : 0,
+            description: row.description || null,
+            purpose: row.purpose || 'actuation',
+            vehicleType: row.vehicle_type || row.vehicleType || null,
+            lane: row.lane || null,
+            technologyType: row.technology_type || row.technologyType || 'inductive',
+            length: lenRaw !== undefined && lenRaw !== '' ? parseFloat(lenRaw) : null,
+            stopbarSetbackDist: setbackRaw !== undefined && setbackRaw !== '' ? parseFloat(setbackRaw) : null,
+        };
+    }).filter((d) => Boolean(d.channel && d.signalId));
+}
+
+export function parseBasicTimingsCsv(text: string): BasicTiming[] {
+    const rows = parseCsv(text);
+    return rows.map((row) => {
+        const phaseNum = parseInt(row.phase, 10);
+        const recallRaw = (row.veh_recall_type || row.vehRecallType || 'None').trim();
+        const vehRecallType: VehRecallType =
+            recallRaw === 'Min' || recallRaw === 'Max' || recallRaw === 'Soft' ? recallRaw : 'None';
+        const pedRecallRaw = (row.ped_recall || row.pedRecall || '').trim().toLowerCase();
+        const pedRecall = pedRecallRaw === 'true' || pedRecallRaw === '1';
+
+        const parseNum = (v: string | undefined) => (v !== undefined && v !== '' ? parseFloat(v) : null);
+
+        return {
+            phase: Number.isFinite(phaseNum) ? phaseNum : 0,
+            signalId: row.signal_id || row.signalId || '',
+            pedWalk: parseNum(row.ped_walk || row.pedWalk),
+            pedClearance: parseNum(row.ped_clearance || row.pedClearance),
+            leadingPedInterval: parseNum(row.leading_ped_interval || row.leadingPedInterval),
+            minGreen: parseNum(row.min_green || row.minGreen),
+            maxGreen: parseNum(row.max_green || row.maxGreen),
+            yellow: parseNum(row.yellow),
+            allRed: parseNum(row.all_red || row.allRed),
+            vehRecallType,
+            pedRecall,
+        };
+    }).filter((t) => Boolean(t.signalId && t.phase));
 }
 

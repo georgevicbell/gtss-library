@@ -1,19 +1,24 @@
 import * as DocumentPicker from 'expo-document-picker';
 import { useEffect, useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import {
     addCustomLibraryEntries,
     createEntryFromUrl,
+    getBoundsForEntries,
     getSelectedLibraryUrls,
+    importLibraryFeeds,
     loadLibrary,
+    parseGtssZip,
     setSelectedLibraryUrls,
     type GtssLibraryEntry,
 } from '@/lib/gtss/library';
+import { saveFeed } from '@/lib/gtss/storage';
+import type { MapBounds } from '@/lib/osm/overpass';
 
 export interface LibraryModalProps {
     visible: boolean;
-    onClose: () => void;
+    onClose: (bounds?: MapBounds | null) => void;
 }
 
 // Shown on initial page load: lets the user browse the GTSS library and choose which
@@ -22,12 +27,18 @@ export default function LibraryModal({ visible, onClose }: LibraryModalProps) {
     const [entries, setEntries] = useState<GtssLibraryEntry[]>([]);
     const [selected, setSelected] = useState<Set<string>>(new Set());
     const [urlInput, setUrlInput] = useState('');
+    const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
     async function refresh() {
         const [loadedEntries, selectedUrls] = await Promise.all([loadLibrary(), getSelectedLibraryUrls()]);
         setEntries(loadedEntries);
-        setSelected(new Set(selectedUrls));
+        if (selectedUrls.length > 0) {
+            setSelected(new Set(selectedUrls));
+        } else {
+            // Default: select all bundled library entries initially so feeds appear immediately.
+            setSelected(new Set(loadedEntries.map((e) => e['gtss-url'])));
+        }
     }
 
     useEffect(() => {
@@ -66,32 +77,73 @@ export default function LibraryModal({ visible, onClose }: LibraryModalProps) {
 
     async function handleUpload() {
         setError(null);
-        const result = await DocumentPicker.getDocumentAsync({ type: 'application/json' });
+        const result = await DocumentPicker.getDocumentAsync({
+            type: ['application/json', 'application/zip', 'application/x-zip-compressed', '*/*'],
+        });
         if (result.canceled || !result.assets?.[0]) return;
+        const asset = result.assets[0];
         try {
-            const text = await (await fetch(result.assets[0].uri)).text();
-            const parsed = JSON.parse(text);
-            const uploaded: GtssLibraryEntry[] = Array.isArray(parsed) ? parsed : [parsed];
-            await addCustomLibraryEntries(uploaded);
-            await refresh();
+            if (asset.name.endsWith('.zip') || asset.mimeType?.includes('zip')) {
+                const response = await fetch(asset.uri);
+                const arrayBuffer = await response.arrayBuffer();
+                const feeds = await parseGtssZip(arrayBuffer);
+                for (const feed of feeds) {
+                    await saveFeed(feed);
+                }
+                const newEntry = createEntryFromUrl(asset.name);
+                newEntry.title = asset.name.replace(/\.zip$/i, '');
+                await addCustomLibraryEntries([newEntry]);
+                await refresh();
+                setSelected((prev) => new Set(prev).add(newEntry['gtss-url']));
+            } else {
+                const text = await (await fetch(asset.uri)).text();
+                const parsed = JSON.parse(text);
+                const uploaded: GtssLibraryEntry[] = Array.isArray(parsed) ? parsed : [parsed];
+                await addCustomLibraryEntries(uploaded);
+                await refresh();
+            }
         } catch {
-            setError('Could not read that file as a GTSS library JSON.');
+            setError('Could not read that file as GTSS library data.');
         }
     }
 
-    async function handleDone() {
-        await setSelectedLibraryUrls([...selected]);
+    function handleCancel() {
+        if (loading) return;
         onClose();
     }
 
+    async function handleDone() {
+        if (loading) return;
+        setLoading(true);
+        setError(null);
+        try {
+            const selectedUrls = [...selected];
+            await setSelectedLibraryUrls(selectedUrls);
+
+            if (selectedUrls.length === 0) {
+                onClose(null);
+                return;
+            }
+
+            const { bounds } = await importLibraryFeeds(selectedUrls);
+            const selectedEntries = entries.filter((entry) => selected.has(entry['gtss-url']));
+            const fallbackBounds = getBoundsForEntries(selectedEntries);
+            onClose(bounds || fallbackBounds);
+        } catch (err) {
+            setError((err as Error)?.message || 'Failed to load selected GTSS feeds.');
+        } finally {
+            setLoading(false);
+        }
+    }
+
     return (
-        <Modal visible={visible} animationType="slide" onRequestClose={onClose} transparent>
+        <Modal visible={visible} animationType="slide" onRequestClose={handleCancel} transparent>
             <View style={styles.backdrop}>
                 <View style={styles.sheet}>
                     <View style={styles.header}>
                         <Text style={styles.title}>Load GTSS Files</Text>
-                        <Pressable onPress={onClose}>
-                            <Text style={styles.closeText}>Cancel</Text>
+                        <Pressable onPress={handleCancel} disabled={loading}>
+                            <Text style={[styles.closeText, loading && styles.disabledText]}>Cancel</Text>
                         </Pressable>
                     </View>
 
@@ -104,7 +156,12 @@ export default function LibraryModal({ visible, onClose }: LibraryModalProps) {
                             entries.map((entry) => {
                                 const checked = selected.has(entry['gtss-url']);
                                 return (
-                                    <Pressable key={entry['gtss-url']} style={styles.row} onPress={() => toggle(entry['gtss-url'])}>
+                                    <Pressable
+                                        key={entry['gtss-url']}
+                                        style={styles.row}
+                                        onPress={() => toggle(entry['gtss-url'])}
+                                        disabled={loading}
+                                    >
                                         <View style={[styles.checkbox, checked && styles.checkboxChecked]}>
                                             {checked ? <Text style={styles.checkmark}>{'✓'}</Text> : null}
                                         </View>
@@ -134,20 +191,34 @@ export default function LibraryModal({ visible, onClose }: LibraryModalProps) {
                             autoCapitalize="none"
                             autoCorrect={false}
                             keyboardType="url"
+                            editable={!loading}
                         />
-                        <Pressable style={styles.addButton} onPress={handleAddUrl}>
+                        <Pressable style={styles.addButton} onPress={handleAddUrl} disabled={loading}>
                             <Text style={styles.addButtonText}>Add</Text>
                         </Pressable>
                     </View>
 
-                    <Pressable style={styles.uploadButton} onPress={handleUpload}>
+                    <Pressable style={styles.uploadButton} onPress={handleUpload} disabled={loading}>
                         <Text style={styles.uploadButtonText}>Upload a library file&hellip;</Text>
                     </Pressable>
 
-                    <Pressable style={styles.doneButton} onPress={handleDone}>
-                        <Text style={styles.doneButtonText}>
-                            {selected.size === 0 ? 'Skip' : `Load ${selected.size} ${selected.size === 1 ? 'feed' : 'feeds'}`}
-                        </Text>
+                    <Pressable
+                        style={[styles.doneButton, loading && styles.doneButtonDisabled]}
+                        onPress={handleDone}
+                        disabled={loading}
+                    >
+                        {loading ? (
+                            <View style={styles.loadingRow}>
+                                <ActivityIndicator color="#fff" size="small" />
+                                <Text style={styles.doneButtonText}>Loading feeds&hellip;</Text>
+                            </View>
+                        ) : (
+                            <Text style={styles.doneButtonText}>
+                                {selected.size === 0
+                                    ? 'Skip'
+                                    : `Load ${selected.size} ${selected.size === 1 ? 'feed' : 'feeds'}`}
+                            </Text>
+                        )}
                     </Pressable>
                 </View>
             </View>
@@ -167,6 +238,7 @@ const styles = StyleSheet.create({
     header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
     title: { fontSize: 18, fontWeight: '700' },
     closeText: { color: '#2c3e50', fontWeight: '600', fontSize: 15 },
+    disabledText: { color: '#999' },
     subtitle: { fontSize: 13, color: '#555', marginBottom: 8 },
     list: { flexGrow: 0 },
     row: {
@@ -219,5 +291,7 @@ const styles = StyleSheet.create({
         borderRadius: 8,
         alignItems: 'center',
     },
+    doneButtonDisabled: { opacity: 0.7 },
+    loadingRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     doneButtonText: { color: '#fff', fontWeight: '700', fontSize: 16 },
 });
